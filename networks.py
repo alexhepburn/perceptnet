@@ -7,8 +7,11 @@ from gdn import GDN
 import torch.nn.functional as F
 
 
-class AlexNetGDN(nn.Module):
-    
+class AlexNet(nn.Module):
+    """
+    AlexNet implementation used in torchvision.models, can be used with
+    either generalised divisive normalisation (GDN) layer or ReLU.
+    """
     def __init__(self, num_classes=1000, pretrained=False):
         super(AlexNetGDN, self).__init__()
         self.features = nn.Sequential(
@@ -41,53 +44,6 @@ class AlexNetGDN(nn.Module):
         x = self.features(x)
         return x
 
-
-class Conv2d_tf(nn.Conv2d):
-    """
-    Conv2d with the padding behavior from TF
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Conv2d_tf, self).__init__(*args, **kwargs)
-        self.padding = kwargs.get("padding", "SAME")
-
-    def _compute_padding(self, input, dim):
-        input_size = input.size(dim + 2)
-        filter_size = self.weight.size(dim + 2)
-        effective_filter_size = (filter_size - 1) * self.dilation[dim] + 1
-        out_size = (input_size + self.stride[dim] - 1) // self.stride[dim]
-        total_padding = max(
-            0, (out_size - 1) * self.stride[dim] + effective_filter_size - input_size
-        )
-        additional_padding = int(total_padding % 2 != 0)
-
-        return additional_padding, total_padding
-
-    def forward(self, input):
-        if self.padding == "VALID":
-            return F.conv2d(
-                input,
-                self.weight,
-                self.bias,
-                self.stride,
-                padding=0,
-                dilation=self.dilation,
-                groups=self.groups,
-            )
-        rows_odd, padding_rows = self._compute_padding(input, dim=0)
-        cols_odd, padding_cols = self._compute_padding(input, dim=1)
-        if rows_odd or cols_odd:
-            input = F.pad(input, [0, cols_odd, 0, rows_odd])
-
-        return F.conv2d(
-            input,
-            self.weight,
-            self.bias,
-            self.stride,
-            padding=(padding_rows // 2, padding_cols // 2),
-            dilation=self.dilation,
-            groups=self.groups,
-        )
 
 class percept(nn.Module):
     """
@@ -142,65 +98,10 @@ class percept(nn.Module):
         return features
 
 
-class AutoEncoder(nn.Module):
-    '''
-    Convolutional autoencoder for encoding the output of percept network
-
-    Parameters
-    ----------
-    n_channels : int
-        Number of channels that are in the output.
-    padding : int
-        Number of pixels to zero pad.
-    '''
-    def __init__(self, n_channels, padding):
-        '''
-        Constructs a ``AutoEncoder`` class object.
-        '''
-        super(AutoEncoder, self).__init__()
-
-        self.encoder = nn.Sequential(
-            nn.Conv2d(n_channels, 64, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 16, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(16, 4, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2))
-        
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(4, 16, 3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 64, 3, stride=2, padding=2),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, n_channels, 3, stride=2, padding=1),
-            nn.Sigmoid())
-
-    def forward(self, images):
-        '''
-        Forward pass of the network.
-
-        Parameters
-        ----------
-        images : torch.Tensor
-            Input images to be embedded and reconstructed
-        
-        Returns
-        -------
-        encoded : torch.Tensor
-            The encoded images.
-        decoded : torch.Tensor
-            The reconstructed images.
-        '''
-        encoded = self.encoder(images)
-        decoded = self.decoder(encoded)
-
-        return encoded, decoded
-
-
 class correlation(nn.Module):
+    """
+    Module for measuring Pearson Correlation
+    """
     def __init__(self):
         super(correlation, self).__init__()
 
@@ -212,8 +113,12 @@ class correlation(nn.Module):
         denom = score_n_norm * mos_n_norm
         return -torch.mean(score_n*mos_n.squeeze(), dim=0) / denom
 
+
 class Dist2LogitLayer(nn.Module):
-    ''' takes 2 distances, puts through fc layers, spits out value between [0,1] (if use_sigmoid is True) '''
+    """
+    Taken from https://github.com/richzhang/PerceptualSimilarity/blob/master/models/networks_basic.py
+    takes 2 distances, puts through fc layers, spits out value between [0,1] (if use_sigmoid is True)
+    """
     def __init__(self, chn_mid=32,use_sigmoid=True):
         super(Dist2LogitLayer, self).__init__()
         layers = [nn.Conv2d(5, chn_mid, 1, stride=1, padding=0, bias=True),]
